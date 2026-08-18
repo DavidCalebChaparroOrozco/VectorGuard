@@ -1,4 +1,7 @@
-from typing import Any, Optional
+from typing import Any, Optional, Union
+
+# Define the type alias FIRST so Python can use it in the class signature
+num = Union[int, float]
 
 class Field:
     def __init__(
@@ -19,6 +22,3 @@ class Field:
         self.length = length
         self.regex = regex
         self.nullable = nullable
-
-# Type alias for internal hint clarity
-num = int | float
