@@ -1,12 +1,18 @@
 import pytest
 import polars as pl
 from vectorguard import DataContract, Field, ValidationEngine, ValidationError
+from vectorguard import validate_contract
 
 # 1. Define a sample data contract for testing
 class TransactionContract(DataContract):
     user_id: int = Field(gt=0)
     amount: float = Field(ge=0.0, le=5000.0)
     country: str = Field(length=2, regex="^[A-Z]{2}$")
+
+# Define a clean contract for testing decorator integrations
+class PipelineContract(DataContract):
+    step_id: int = Field(gt=0)
+    status: str = Field(length=2)
 
 # 2. Test case: Valid data should pass seamlessly
 def test_valid_dataframe_passes():
@@ -83,3 +89,29 @@ def test_safe_coercion_repairs_dirty_data():
     assert repaired_df["user_id"][2] == 3        # " 3 " -> 3
     assert repaired_df["amount"][0] == 10.5      # "10,5" -> 10.5
     assert repaired_df["amount"][2] is None      # "N/A" -> native null
+
+# 5. Test case: Decorator automatically validates and mutates incoming DataFrames
+# Wrap a mock transformation pipeline step with our decorator
+@validate_contract(contract=PipelineContract)
+def run_pipeline_step(df: pl.DataFrame, factor: int = 2) -> pl.DataFrame:
+    """
+    A mock transformation pipeline step that multiplies the 'step_id' column by a given factor.
+    This function is decorated with @validate_contract to automatically validate and coerce
+    the incoming DataFrame against the PipelineContract before processing.
+    """
+    return df.with_columns(pl.col("step_id") * factor)
+
+def test_decorator_automatically_validates_and_mutates():
+    # Setup dirty data that requires safe coercion first
+    raw_data = {
+        "step_id": ["10", " 20 ", "30"],  # Str inputs that need auto-casting to int
+        "status": ["OK", "OK", "OK"]
+    }
+    df = pl.DataFrame(raw_data)
+
+    # Act
+    output_df = run_pipeline_step(df, factor=10)
+
+    # Assert: Verify coercion succeeded, validation passed, and processing completed
+    assert output_df.schema["step_id"] == pl.Int64
+    assert output_df["step_id"].to_list() == [100, 200, 300]
