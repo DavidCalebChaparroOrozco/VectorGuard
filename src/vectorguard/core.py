@@ -1,5 +1,5 @@
 import polars as pl
-from typing import Type, Dict, Any, List
+from typing import Type, Dict, Any, List, Tuple, Union
 from vectorguard.contract import DataContract
 from vectorguard.coercion import SafeCoercer
 
@@ -12,24 +12,29 @@ class ValidationError(Exception):
 
 class ValidationEngine:
     @staticmethod
-    def validate(df: pl.DataFrame, contract: Type[DataContract]) -> pl.DataFrame:
+    def validate(df: pl.DataFrame, 
+                 contract: Type[DataContract], 
+                 isolate: bool = False) -> Union[pl.DataFrame, Tuple[pl.DataFrame, pl.DataFrame]]:
         """
         Validates a Polars DataFrame against a DataContract using vector expressions.
-        Returns the original DataFrame if all checks pass, otherwise raises ValidationError.
+
+        If isolate=False (default): Raises ValidationError on failure.
+        If isolate=True: Returns a tuple of (clean_df, isolated_df) without crashing.
         """
         fields = contract.get_fields()
         errors: Dict[str, Any] = {}
         
-        # 1. Structural Validation: Check missing columns
+        # 1. Structural Validation: 
+        # Check missing columns
         missing_cols = [col for col in fields if col not in df.columns]
         if missing_cols:
             raise ValidationError({"structure": f"Missing required columns: {missing_cols}"})
 
-        # 1.5. Data Cleaning step
+        # 2. Data Cleaning step
         # Standardize formats and resolve data types natively in memory
         df = SafeCoercer.coerce(df, contract)
 
-        # 2. Build explicit Polars validation expressions
+        # 3. Build explicit Polars validation expressions
         validation_exprs: List[pl.Expr] = []
         
         for col_name, field in fields.items():
@@ -62,27 +67,37 @@ class ValidationEngine:
 
         # If there are no rules specified, skip computation
         if not validation_exprs:
-            return df
+            return (df, df.filter(pl.lit(False))) if isolate else df
 
-        # Execute all calculations in parallel across columns (Lazy mode)
-        # This triggers a single, unified execution pass over the memory buffers
-        result_df = df.lazy().select(validation_exprs).collect()
+        # Execute evaluation matrix in a single pass over the data
+        matrix_df = df.lazy().select(validation_exprs).collect()
 
-        # 3. Analyze execution matrices for failures
-        for col_name, field in fields.items():
-            col_errors = {}
+        # 4. Generate a combined boolean mask across all failed checks
+        # If ANY check fails in a row, that entire row is marked as invalid
+        row_failed_mask = pl.any_horizontal([pl.col(c) for c in matrix_df.columns])
+
+        # Inject the failure mask back as a temporary boolean series
+        is_invalid_series = matrix_df.select(row_failed_mask).to_series()
+
+        # 5. Isolation Mode Routing
+        if isolate:
+            # Separate data seamlessly using memory-efficient masking
+            clean_df = df.filter(~is_invalid_series)
+            isolated_df = df.filter(is_invalid_series)
+            return clean_df, isolated_df
+
+        # 6. Default Mode: Collect and raise errors if any row failed
+        if is_invalid_series.any():
+            errors: Dict[str, Any] = {}
+            for col_name, field in fields.items():
+                col_errors = {}
+                for check_col in matrix_df.columns:
+                    if check_col.startswith(f"{col_name}_") and matrix_df[check_col].any():
+                        fail_count = matrix_df[check_col].sum()
+                        col_errors[check_col.split("_")[-2]] = f"Failed {fail_count} rows"
+                if col_errors:
+                    errors[col_name] = col_errors
             
-            # Check individual rule results by checking if any row evaluated to True (failed)
-            for check_col in result_df.columns:
-                if check_col.startswith(f"{col_name}_") and result_df[check_col].any():
-                    # Count how many rows failed this specific assertion
-                    fail_count = result_df[check_col].sum()
-                    col_errors[check_col.split("_")[-2]] = f"Failed {fail_count} rows"
-            
-            if col_errors:
-                errors[col_name] = col_errors
-
-        if errors:
             raise ValidationError(errors)
 
         return df
