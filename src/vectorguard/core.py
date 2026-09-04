@@ -1,6 +1,7 @@
 import polars as pl
 from typing import Type, Dict, Any, List
 from vectorguard.contract import DataContract
+from vectorguard.coercion import SafeCoercer
 
 class ValidationError(Exception):
     """Exception raised when a DataFrame fails contract compliance."""
@@ -23,6 +24,10 @@ class ValidationEngine:
         missing_cols = [col for col in fields if col not in df.columns]
         if missing_cols:
             raise ValidationError({"structure": f"Missing required columns: {missing_cols}"})
+
+        # 1.5. Data Cleaning step
+        # Standardize formats and resolve data types natively in memory
+        df = SafeCoercer.coerce(df, contract)
 
         # 2. Build explicit Polars validation expressions
         validation_exprs: List[pl.Expr] = []
