@@ -115,3 +115,29 @@ def test_decorator_automatically_validates_and_mutates():
     # Assert: Verify coercion succeeded, validation passed, and processing completed
     assert output_df.schema["step_id"] == pl.Int64
     assert output_df["step_id"].to_list() == [100, 200, 300]
+
+# 6. Test case: Dead letter box isolates corrupt rows
+def test_dead_letter_box_isolates_corrupt_rows():
+    # Setup mixed input where rows 0 and 2 are perfectly fine, but row 1 is broken
+    mixed_data = {
+        "user_id": [0, 10, 30],         # 0 breaks gt=0
+        "amount": [150.0, 20.0, -5.0],   # -5.0 breaks ge=0
+        "country": ["US", "XX", "CA"]
+    }
+    df = pl.DataFrame(mixed_data)
+
+    class IsolationContract(DataContract):
+        user_id: int = Field(gt=0)
+        amount: float = Field(ge=0.0)
+        country: str = Field(length=2)
+
+    # Act: Trigger validation with isolation mode enabled
+    clean_df, dead_letter_df = ValidationEngine.validate(df, IsolationContract, isolate=True)
+
+    # Assert: Verify clean rows were retained correctly
+    assert clean_df.shape == (1, 3)
+    assert clean_df["user_id"].to_list() == [10]
+
+    # Assert: Verify flawed rows were diverted into the dead letter box
+    assert dead_letter_df.shape == (2, 3)
+    assert dead_letter_df["user_id"].to_list() == [0, 30]
