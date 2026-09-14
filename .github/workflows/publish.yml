@@ -26,9 +26,11 @@ jobs:
           python-version: "3.12"
 
       # 3. Install uv and project tools
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6      
+
       - name: Install Dependencies
         run: |
-          curl -LsSf https://astral.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           uv pip install --system build pytest polars pyarrow
 
