@@ -34,7 +34,6 @@ jobs:
       # 4. Install build and test dependencies
       - name: Install Dependencies
         run: |
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
           uv pip install --system build pytest polars pyarrow
 
       # 5. Run full test suite before building to prevent broken releases
