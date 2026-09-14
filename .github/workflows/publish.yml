@@ -37,6 +37,7 @@ jobs:
       # 4. Run full test suite before building to prevent broken releases
       - name: Run Integrity Tests
         run: |
+          uv pip install -e .
           uv run pytest
 
       # 5. Build source distribution and wheel packages
