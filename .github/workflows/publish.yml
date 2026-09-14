@@ -1,0 +1,47 @@
+name: Publish VectorGuard to PyPI
+
+on:
+  release:
+    types: [published] # Triggers automatically when you create a GitHub Release
+
+jobs:
+  validate-and-publish:
+    name: Build and Release Package
+    runs-on: ubuntu-latest
+    
+    # Required permissions for PyPI Trusted Publishing OIDC
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      # 1. Checkout the source code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Setup Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3. Install uv and project tools
+      - name: Install Dependencies
+        run: |
+          curl -LsSf https://astral.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          uv pip install --system build pytest polars pyarrow
+
+      # 4. Run full test suite before building to prevent broken releases
+      - name: Run Integrity Tests
+        run: |
+          uv run pytest
+
+      # 5. Build source distribution and wheel packages
+      - name: Build Wheel and Tarball
+        run: |
+          python -m build
+
+      # 6. Publish safely to PyPI using Trusted Publishing
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
