@@ -1,6 +1,8 @@
 name: Publish VectorGuard to PyPI
 
 on:
+  workflow_dispatch: 
+  
   release:
     types: [published] # Triggers automatically when you create a GitHub Release
 
@@ -46,6 +48,12 @@ jobs:
         run: |
           uv build
 
-      # 7. Publish safely to PyPI using Trusted Publishing
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      # 7. Verify Build
+      - name: Verify Build
+        run: |
+          echo "Build completed successfully."
+          ls -lah dist/
+
+      # 8. Publish safely to PyPI using Trusted Publishing
+      #- name: Publish to PyPI
+      #  uses: pypa/gh-action-pypi-publish@release/v1
