@@ -55,5 +55,5 @@ jobs:
           ls -lah dist/
 
       # 8. Publish safely to PyPI using Trusted Publishing
-      #- name: Publish to PyPI
-      #  uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
