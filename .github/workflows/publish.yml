@@ -27,24 +27,27 @@ jobs:
 
       # 3. Install uv and project tools
       - name: Install uv
-        uses: astral-sh/setup-uv@v6      
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
+      # 4. Install build and test dependencies
       - name: Install Dependencies
         run: |
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           uv pip install --system build pytest polars pyarrow
 
-      # 4. Run full test suite before building to prevent broken releases
+      # 5. Run full test suite before building to prevent broken releases
       - name: Run Integrity Tests
         run: |
           uv pip install -e .
           uv run pytest
 
-      # 5. Build source distribution and wheel packages
+      # 6. Build source distribution and wheel packages
       - name: Build Wheel and Tarball
         run: |
           python -m build
 
-      # 6. Publish safely to PyPI using Trusted Publishing
+      # 7. Publish safely to PyPI using Trusted Publishing
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
