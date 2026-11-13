@@ -1,4 +1,5 @@
-from typing import Any, Callable, Optional, Union
+from collections.abc import Callable
+from typing import Any, Union
 
 # Define the type alias FIRST so Python can use it in the class signature
 num = Union[int, float]
@@ -10,14 +11,14 @@ class Field:
     def __init__(
         self,
         *,
-        gt: Optional[num] = None,                           # Greater than
-        ge: Optional[num] = None,                           # Greater than or equal to
-        lt: Optional[num] = None,                           # Less than
-        le: Optional[num] = None,                           # Less than or equal to
-        length: Optional[int] = None,                       # Exact string length
-        regex: Optional[str] = None,                        # Regex pattern matching
-        nullable: bool = False,                             # Is column allowed to contain nulls?
-        repair_with: Optional[Callable[[Any], Any]] = None  # Custom repair logic callback
+        gt: num | None = None,  # Greater than
+        ge: num | None = None,  # Greater than or equal to
+        lt: num | None = None,  # Less than
+        le: num | None = None,  # Less than or equal to
+        length: int | None = None,  # Exact string length
+        regex: str | None = None,  # Regex pattern matching
+        nullable: bool = False,  # Is column allowed to contain nulls?
+        repair_with: Callable[[Any], Any] | None = None,  # Custom repair logic callback
     ):
         self.gt = gt
         self.ge = ge
@@ -27,7 +28,7 @@ class Field:
         self.regex = regex
         self.nullable = nullable
         self.repair_with = repair_with
-        self.data_type: Optional[type] = None
+        self.data_type: type | None = None
 
     def clone_with_type(self, data_type: type, force_nullable: bool = False) -> "Field":
         """

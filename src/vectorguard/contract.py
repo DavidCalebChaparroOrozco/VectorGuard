@@ -1,11 +1,12 @@
 import types
-from typing import Any, Dict, Tuple, Union, get_args, get_origin, get_type_hints
+from typing import Any, Union, get_args, get_origin, get_type_hints
+
 from vectorguard.fields import Field
 
 SUPPORTED_TYPES = (int, float, str)
 
 
-def _resolve_field_type(annotation: Any, field_name: str) -> Tuple[type, bool]:
+def _resolve_field_type(annotation: Any, field_name: str) -> tuple[type, bool]:
     """
     Resolves a Python type annotation into a supported primitive type and a
     boolean indicating whether None/null is permitted by the annotation.
@@ -49,7 +50,7 @@ class ContractMeta(type):
         if name == "DataContract" and not bases:
             return cls
 
-        fields: Dict[str, Field] = {}
+        fields: dict[str, Field] = {}
 
         # 1. Collect inherited fields from base contracts in MRO order (excluding object/DataContract)
         for base in reversed(cls.__mro__[1:]):
@@ -95,9 +96,9 @@ class ContractMeta(type):
 
 
 class DataContract(metaclass=ContractMeta):
-    _contract_fields: Dict[str, Field] = {}
+    _contract_fields: dict[str, Field] = {}
 
     @classmethod
-    def get_fields(cls) -> Dict[str, Field]:
+    def get_fields(cls) -> dict[str, Field]:
         """Returns a shallow copy of the extracted dictionary of fields and constraints."""
         return dict(cls._contract_fields)

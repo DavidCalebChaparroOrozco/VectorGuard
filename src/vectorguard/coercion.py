@@ -1,5 +1,5 @@
 import polars as pl
-from typing import Type
+
 from vectorguard.contract import DataContract
 
 
@@ -37,7 +37,7 @@ class SafeCoercer:
         )
 
     @staticmethod
-    def coerce(df: pl.DataFrame, contract: Type[DataContract]) -> pl.DataFrame:
+    def coerce(df: pl.DataFrame, contract: type[DataContract]) -> pl.DataFrame:
         """
         Cleans and safely casts DataFrame columns based on contract type declarations.
         Applies custom user-defined repair logic before executing standard vector coercions.
@@ -78,7 +78,11 @@ class SafeCoercer:
                     # Parse via Float64 first only if exact integer string (e.g. "10.0" -> 10, "10.9" -> null)
                     as_float = normalized.cast(pl.Float64, strict=False)
                     expr = (
-                        pl.when(as_float.is_not_null() & (as_float == as_float.floor()) & as_float.is_finite())
+                        pl.when(
+                            as_float.is_not_null()
+                            & (as_float == as_float.floor())
+                            & as_float.is_finite()
+                        )
                         .then(as_float.cast(pl.Int64, strict=False))
                         .otherwise(None)
                     )

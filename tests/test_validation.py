@@ -1,8 +1,8 @@
-import pytest
 import polars as pl
-from vectorguard import DataContract, Field, ValidationEngine, ValidationError
-from vectorguard import validate_contract
-from typing import Optional
+import pytest
+
+from vectorguard import DataContract, Field, ValidationEngine, ValidationError, validate_contract
+
 
 # 1. Define a sample data contract for testing
 class TransactionContract(DataContract):
@@ -10,10 +10,12 @@ class TransactionContract(DataContract):
     amount: float = Field(ge=0.0, le=5000.0)
     country: str = Field(length=2, regex="^[A-Z]{2}$")
 
+
 # Define a clean contract for testing decorator integrations
 class PipelineContract(DataContract):
     step_id: int = Field(gt=0)
     status: str = Field(length=2)
+
 
 # 2. Test case: Valid data should pass seamlessly
 def test_valid_dataframe_passes():
@@ -21,48 +23,46 @@ def test_valid_dataframe_passes():
     valid_ids = [1, 2, 3, 4]
     valid_amounts = [10.5, 99.9, 0.0, 4999.9]
     valid_countries = ["US", "MX", "CA", "FR"]
-    
-    valid_data = {
-        "user_id": valid_ids,
-        "amount": valid_amounts,
-        "country": valid_countries
-    }
+
+    valid_data = {"user_id": valid_ids, "amount": valid_amounts, "country": valid_countries}
     df = pl.DataFrame(valid_data)
-    
+
     # Act & Assert
     result = ValidationEngine.validate(df, TransactionContract)
     assert result.shape == (4, 3)  # Should return the original dataframe intact
+
 
 # 3. Test case: Invalid data should raise ValidationError with accurate error counts
 def test_invalid_dataframe_raises_errors():
     invalid_ids = [0, 1, 2]
     invalid_amounts = [-5.0, 150.0, 6000.0]
     invalid_countries = ["US", "MEX", "ca"]
-    
+
     invalid_data = {
-        "user_id": invalid_ids,          # 0 fails gt=0
-        "amount": invalid_amounts,       # -5.0 fails ge=0, 6000.0 fails le=5000
-        "country": invalid_countries     # 'MEX' fails length=2, 'ca' fails regex pattern
+        "user_id": invalid_ids,  # 0 fails gt=0
+        "amount": invalid_amounts,  # -5.0 fails ge=0, 6000.0 fails le=5000
+        "country": invalid_countries,  # 'MEX' fails length=2, 'ca' fails regex pattern
     }
     df = pl.DataFrame(invalid_data)
-    
+
     # Act & Assert
     with pytest.raises(ValidationError) as exc_info:
         ValidationEngine.validate(df, TransactionContract)
-    
+
     errors = exc_info.value.errors
-    
+
     # Verify the error dictionary structure and counts
     assert "user_id" in errors
     assert "gt" in errors["user_id"]
-    
+
     assert "amount" in errors
     assert "ge" in errors["amount"]
     assert "le" in errors["amount"]
-    
+
     assert "country" in errors
     assert "length" in errors["country"]
     assert "regex" in errors["country"]
+
 
 # 4. Test case: Safe coercion repairs dirty data
 def test_safe_coercion_repairs_dirty_data():
@@ -70,10 +70,10 @@ def test_safe_coercion_repairs_dirty_data():
     dirty_data = {
         "user_id": ["1", "2", " 3 ", "4"],
         "amount": ["10,5", "99.9", "N/A", "4999,0"],
-        "country": ["US", "MX", "CA", "FR"]
+        "country": ["US", "MX", "CA", "FR"],
     }
     df = pl.DataFrame(dirty_data)
-    
+
     class CoercionContract(DataContract):
         user_id: int = Field(gt=0, nullable=False)
         amount: float = Field(ge=0.0, le=5000.0, nullable=True)
@@ -81,15 +81,16 @@ def test_safe_coercion_repairs_dirty_data():
 
     # Act
     repaired_df = ValidationEngine.validate(df, CoercionContract)
-    
+
     # Assert structural type mutations succeeded
     assert repaired_df.schema["user_id"] == pl.Int64
     assert repaired_df.schema["amount"] == pl.Float64
-    
+
     # Assert accurate text parsing occurred
-    assert repaired_df["user_id"][2] == 3        # " 3 " -> 3
-    assert repaired_df["amount"][0] == 10.5      # "10,5" -> 10.5
-    assert repaired_df["amount"][2] is None      # "N/A" -> native null
+    assert repaired_df["user_id"][2] == 3  # " 3 " -> 3
+    assert repaired_df["amount"][0] == 10.5  # "10,5" -> 10.5
+    assert repaired_df["amount"][2] is None  # "N/A" -> native null
+
 
 # 5. Test case: Decorator automatically validates and mutates incoming DataFrames
 # Wrap a mock transformation pipeline step with our decorator
@@ -102,11 +103,12 @@ def run_pipeline_step(df: pl.DataFrame, factor: int = 2) -> pl.DataFrame:
     """
     return df.with_columns(pl.col("step_id") * factor)
 
+
 def test_decorator_automatically_validates_and_mutates():
     # Setup dirty data that requires safe coercion first
     raw_data = {
         "step_id": ["10", " 20 ", "30"],  # Str inputs that need auto-casting to int
-        "status": ["OK", "OK", "OK"]
+        "status": ["OK", "OK", "OK"],
     }
     df = pl.DataFrame(raw_data)
 
@@ -117,13 +119,14 @@ def test_decorator_automatically_validates_and_mutates():
     assert output_df.schema["step_id"] == pl.Int64
     assert output_df["step_id"].to_list() == [100, 200, 300]
 
+
 # 6. Test case: Dead letter box isolates corrupt rows
 def test_dead_letter_box_isolates_corrupt_rows():
     # Setup variables explicitly to avoid syntax trimming errors
     mixed_data = {
-        "user_id": [0, 10, 30],         # 0 breaks gt=0
-        "amount": [150.0, 20.0, -5.0],   # -5.0 breaks ge=0
-        "country": ["US", "XX", "CA"]
+        "user_id": [0, 10, 30],  # 0 breaks gt=0
+        "amount": [150.0, 20.0, -5.0],  # -5.0 breaks ge=0
+        "country": ["US", "XX", "CA"],
     }
     df = pl.DataFrame(mixed_data)
 
@@ -143,6 +146,7 @@ def test_dead_letter_box_isolates_corrupt_rows():
     assert dead_letter_df.shape == (2, 4)
     assert dead_letter_df["user_id"].to_list() == [0, 30]
 
+
 # 7. Test custom repair & error reason logging
 def test_custom_repair_and_error_reason_logging():
     # Row 0: Needs custom string stripping ("ID_99") -> valid
@@ -151,13 +155,15 @@ def test_custom_repair_and_error_reason_logging():
     test_data = {
         "user_id": ["ID_99", "ID_100", "ID_200"],
         "amount": [50.0, -10.0, 20.0],
-        "country": ["US", "MX", "BAD_NAME"]
+        "country": ["US", "MX", "BAD_NAME"],
     }
     df = pl.DataFrame(test_data)
 
     class CustomContract(DataContract):
         # A custom repair rule that removes the "ID_" prefix from user string entry via polars expression
-        user_id: int = Field(gt=0, repair_with=lambda expr: expr.str.replace("ID_", "", literal=True))
+        user_id: int = Field(
+            gt=0, repair_with=lambda expr: expr.str.replace("ID_", "", literal=True)
+        )
         amount: float = Field(gt=0)
         country: str = Field(length=2)
 
@@ -171,10 +177,11 @@ def test_custom_repair_and_error_reason_logging():
     # Assert: Explanatory error tracking logs exist
     assert dead_letter_df.shape == (2, 4)  # 3 original columns + 1 error log column
     assert "_vg_errors" in dead_letter_df.columns
-    
+
     # Check that it explains exactly WHY it failed
     assert "[amount_gt]" in dead_letter_df["_vg_errors"][0]
     assert "[country_length]" in dead_letter_df["_vg_errors"][1]
+
 
 # 8. Test case: Multiple validation failures are tracked on the same row
 def test_multiple_error_reasons_are_logged():
@@ -183,11 +190,7 @@ def test_multiple_error_reasons_are_logged():
     multi_amounts = [-100.0]
     multi_countries = ["BAD"]
 
-    test_data = {
-        "user_id": multi_ids,
-        "amount": multi_amounts,
-        "country": multi_countries
-    }
+    test_data = {"user_id": multi_ids, "amount": multi_amounts, "country": multi_countries}
     df = pl.DataFrame(test_data)
 
     class MultiErrorContract(DataContract):
@@ -196,11 +199,7 @@ def test_multiple_error_reasons_are_logged():
         country: str = Field(length=2, regex="^[A-Z]{2}$")
 
     # Act
-    clean_df, dead_letter_df = ValidationEngine.validate(
-        df,
-        MultiErrorContract,
-        isolate=True
-    )
+    clean_df, dead_letter_df = ValidationEngine.validate(df, MultiErrorContract, isolate=True)
 
     # Assert: The row is isolated because multiple rules failed
     assert clean_df.shape == (0, 3)
@@ -219,11 +218,7 @@ def test_multiple_error_reasons_are_logged():
 
 # 9. Test case: Nullable fields accept native null values
 def test_nullable_field_accepts_null():
-    data = {
-        "user_id": [1, 2, 3],
-        "amount": [10.0, None, 50.0],
-        "country": ["US", "MX", "CA"]
-    }
+    data = {"user_id": [1, 2, 3], "amount": [10.0, None, 50.0], "country": ["US", "MX", "CA"]}
     df = pl.DataFrame(data)
 
     class NullableContract(DataContract):
@@ -241,11 +236,7 @@ def test_nullable_field_accepts_null():
 
 # 10. Test case: Non-nullable fields reject native null values
 def test_non_nullable_field_rejects_null():
-    data = {
-        "user_id": [1, None, 3],
-        "amount": [10.0, 20.0, 50.0],
-        "country": ["US", "MX", "CA"]
-    }
+    data = {"user_id": [1, None, 3], "amount": [10.0, 20.0, 50.0], "country": ["US", "MX", "CA"]}
     df = pl.DataFrame(data)
 
     class NonNullableContract(DataContract):
@@ -266,10 +257,7 @@ def test_non_nullable_field_rejects_null():
 
 # 11. Test case: Structural validation rejects missing required columns
 def test_missing_required_columns_raise_validation_error():
-    data = {
-        "user_id": [1, 2, 3],
-        "amount": [10.0, 20.0, 30.0]
-    }
+    data = {"user_id": [1, 2, 3], "amount": [10.0, 20.0, 30.0]}
     df = pl.DataFrame(data)
 
     # Act & Assert
@@ -284,10 +272,7 @@ def test_missing_required_columns_raise_validation_error():
 
 # 12. Test case: Contracts without validation rules pass unchanged
 def test_contract_without_validation_rules_passes():
-    data = {
-        "user_id": [1, 2, 3],
-        "name": ["Alice", "Bob", "Charlie"]
-    }
+    data = {"user_id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
     df = pl.DataFrame(data)
 
     class NoRulesContract(DataContract):
@@ -304,10 +289,7 @@ def test_contract_without_validation_rules_passes():
 
 # 13. Test case: Isolation mode with no validation rules returns an empty dead letter box
 def test_isolation_without_validation_rules_returns_empty_dead_letter_box():
-    data = {
-        "user_id": [1, 2, 3],
-        "name": ["Alice", "Bob", "Charlie"]
-    }
+    data = {"user_id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
     df = pl.DataFrame(data)
 
     class NoRulesContract(DataContract):
@@ -315,11 +297,7 @@ def test_isolation_without_validation_rules_returns_empty_dead_letter_box():
         name: str = Field()
 
     # Act
-    clean_df, dead_letter_df = ValidationEngine.validate(
-        df,
-        NoRulesContract,
-        isolate=True
-    )
+    clean_df, dead_letter_df = ValidationEngine.validate(df, NoRulesContract, isolate=True)
 
     # Assert: All rows are valid
     assert clean_df.shape == (3, 2)
@@ -335,18 +313,13 @@ def test_custom_repair_runs_before_standard_coercion():
     data = {
         "user_id": ["ID_10", "ID_20", "ID_30"],
         "amount": ["10,5", "20,5", "30,5"],
-        "country": ["US", "MX", "CA"]
+        "country": ["US", "MX", "CA"],
     }
     df = pl.DataFrame(data)
 
     class CombinedContract(DataContract):
         user_id: int = Field(
-            gt=0,
-            repair_with=lambda expr: expr.str.replace(
-                "ID_",
-                "",
-                literal=True
-            )
+            gt=0, repair_with=lambda expr: expr.str.replace("ID_", "", literal=True)
         )
         amount: float = Field(ge=0.0)
         country: str = Field(length=2)
@@ -401,7 +374,7 @@ def test_shared_field_instance_is_not_mutated():
 def test_optional_and_union_type_annotations():
     class OptionalFieldsContract(DataContract):
         user_id: int = Field(gt=0)
-        nickname: Optional[str] = Field(length=4)
+        nickname: str | None = Field(length=4)
         discount: float | None = Field(ge=0.0)
 
     fields = OptionalFieldsContract.get_fields()
@@ -410,11 +383,13 @@ def test_optional_and_union_type_annotations():
     assert fields["discount"].data_type is float
     assert fields["discount"].nullable is True
 
-    df = pl.DataFrame({
-        "user_id": list(range(1, 3)),
-        "nickname": ["ALFA", None],
-        "discount": [None, 15.5],
-    })
+    df = pl.DataFrame(
+        {
+            "user_id": list(range(1, 3)),
+            "nickname": ["ALFA", None],
+            "discount": [None, 15.5],
+        }
+    )
     validated = ValidationEngine.validate(df, OptionalFieldsContract)
     assert validated.shape == (2, 3)
 
@@ -422,8 +397,10 @@ def test_optional_and_union_type_annotations():
 # 18. Test case: Unsupported type annotations fail explicitly with TypeError
 def test_unsupported_type_annotation_raises_type_error():
     with pytest.raises(TypeError, match="Unsupported type annotation"):
+
         class InvalidTypeContract(DataContract):
             tags: list = Field()
+
 
 # 19. Test case: Integer columns are promoted to Float64 when contract expects float
 def test_integer_to_float_coercion():
@@ -431,11 +408,13 @@ def test_integer_to_float_coercion():
     int_amounts = list(range(10, 40, 10))
     countries = ["US", "MX", "CA"]
 
-    df = pl.DataFrame({
-        "user_id": int_ids,
-        "amount": int_amounts,
-        "country": countries,
-    })
+    df = pl.DataFrame(
+        {
+            "user_id": int_ids,
+            "amount": int_amounts,
+            "country": countries,
+        }
+    )
 
     result = ValidationEngine.validate(df, TransactionContract)
     assert result.schema["amount"] == pl.Float64
@@ -448,10 +427,12 @@ def test_float_to_int_prevents_silent_truncation():
         exact_col: int = Field(gt=0)
         fractional_col: int = Field(gt=0, nullable=False)
 
-    df = pl.DataFrame({
-        "exact_col": [10.0, 20.0],
-        "fractional_col": [10.0, 10.9],  # 10.9 must NOT silently become 10
-    })
+    df = pl.DataFrame(
+        {
+            "exact_col": [10.0, 20.0],
+            "fractional_col": [10.0, 10.9],  # 10.9 must NOT silently become 10
+        }
+    )
 
     with pytest.raises(ValidationError) as exc_info:
         ValidationEngine.validate(df, StrictIntContract)
@@ -465,9 +446,11 @@ def test_numeric_string_thousands_and_malformed_commas():
     class NumericStringContract(DataContract):
         price: float = Field(ge=0.0, nullable=True)
 
-    df = pl.DataFrame({
-        "price": ["1,234.56", "10,5", "1,2,3"],
-    })
+    df = pl.DataFrame(
+        {
+            "price": ["1,234.56", "10,5", "1,2,3"],
+        }
+    )
 
     result = ValidationEngine.validate(df, NumericStringContract)
     assert result.schema["price"] == pl.Float64

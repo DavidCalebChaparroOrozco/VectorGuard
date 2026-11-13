@@ -1,12 +1,15 @@
+from typing import Any
+
 import polars as pl
-from typing import Type, Dict, Any, List, Tuple, Union
-from vectorguard.contract import DataContract
+
 from vectorguard.coercion import SafeCoercer
+from vectorguard.contract import DataContract
 
 
 class ValidationError(Exception):
     """Exception raised when a DataFrame fails contract compliance."""
-    def __init__(self, errors: Dict[str, Any]):
+
+    def __init__(self, errors: dict[str, Any]):
         self.errors = errors
         super().__init__(f"Contract validation failed: {errors}")
 
@@ -14,10 +17,8 @@ class ValidationError(Exception):
 class ValidationEngine:
     @staticmethod
     def validate(
-        df: pl.DataFrame,
-        contract: Type[DataContract],
-        isolate: bool = False
-    ) -> Union[pl.DataFrame, Tuple[pl.DataFrame, pl.DataFrame]]:
+        df: pl.DataFrame, contract: type[DataContract], isolate: bool = False
+    ) -> pl.DataFrame | tuple[pl.DataFrame, pl.DataFrame]:
         """
         Validates a Polars DataFrame against a DataContract using vector expressions.
 
@@ -27,15 +28,13 @@ class ValidationEngine:
         validation rules that failed for each row.
         """
         fields = contract.get_fields()
-        errors: Dict[str, Any] = {}
+        errors: dict[str, Any] = {}
 
         # 1. Structural Validation:
         # Check missing columns
         missing_cols = [col for col in fields if col not in df.columns]
         if missing_cols:
-            raise ValidationError(
-                {"structure": f"Missing required columns: {missing_cols}"}
-            )
+            raise ValidationError({"structure": f"Missing required columns: {missing_cols}"})
 
         # 2. Data Cleaning step
         # Standardize formats and resolve data types natively in memory
@@ -43,67 +42,47 @@ class ValidationEngine:
         df = SafeCoercer.coerce(df, contract)
 
         # 3. Build explicit Polars validation expressions
-        validation_exprs: List[pl.Expr] = []
+        validation_exprs: list[pl.Expr] = []
 
         for col_name, field in fields.items():
             # Basic constraint: Null checks
             if not field.nullable:
                 # Creates a boolean mask where True = invalid (it is null)
-                validation_exprs.append(
-                    pl.col(col_name)
-                    .is_null()
-                    .alias(f"{col_name}_null_fail")
-                )
+                validation_exprs.append(pl.col(col_name).is_null().alias(f"{col_name}_null_fail"))
 
             # Numeric Boundary Constraints
             if field.gt is not None:
-                validation_exprs.append(
-                    (pl.col(col_name) <= field.gt)
-                    .alias(f"{col_name}_gt_fail")
-                )
+                validation_exprs.append((pl.col(col_name) <= field.gt).alias(f"{col_name}_gt_fail"))
 
             if field.ge is not None:
-                validation_exprs.append(
-                    (pl.col(col_name) < field.ge)
-                    .alias(f"{col_name}_ge_fail")
-                )
+                validation_exprs.append((pl.col(col_name) < field.ge).alias(f"{col_name}_ge_fail"))
 
             if field.lt is not None:
-                validation_exprs.append(
-                    (pl.col(col_name) >= field.lt)
-                    .alias(f"{col_name}_lt_fail")
-                )
+                validation_exprs.append((pl.col(col_name) >= field.lt).alias(f"{col_name}_lt_fail"))
 
             if field.le is not None:
-                validation_exprs.append(
-                    (pl.col(col_name) > field.le)
-                    .alias(f"{col_name}_le_fail")
-                )
+                validation_exprs.append((pl.col(col_name) > field.le).alias(f"{col_name}_le_fail"))
 
             # String constraints
             if field.length is not None:
                 validation_exprs.append(
-                    (
-                        pl.col(col_name).str.len_chars() != field.length
-                    ).alias(f"{col_name}_length_fail")
+                    (pl.col(col_name).str.len_chars() != field.length).alias(
+                        f"{col_name}_length_fail"
+                    )
                 )
 
             if field.regex is not None:
                 validation_exprs.append(
-                    (
-                        pl.col(col_name)
-                        .str.contains(field.regex)
-                        .not_()
-                    ).alias(f"{col_name}_regex_fail")
+                    (pl.col(col_name).str.contains(field.regex).not_()).alias(
+                        f"{col_name}_regex_fail"
+                    )
                 )
 
         # If there are no rules specified, skip computation
         if not validation_exprs:
             if isolate:
-                empty_isolated = (
-                    df
-                    .with_columns(pl.lit("").alias("_vg_errors"))
-                    .filter(pl.lit(False))
+                empty_isolated = df.with_columns(pl.lit("").alias("_vg_errors")).filter(
+                    pl.lit(False)
                 )
                 return df, empty_isolated
 
@@ -119,28 +98,23 @@ class ValidationEngine:
 
         # Create descriptive row-by-row error tracing vector
         # Each validation flag is converted into a human-readable rule marker.
-        error_trace_exprs: List[pl.Expr] = []
+        error_trace_exprs: list[pl.Expr] = []
 
         for check_col in matrix_df.columns:
             # If the boolean rule flag is True, yield the clean name of the violation rule
             rule_name = check_col.removesuffix("_fail")
 
             error_trace_exprs.append(
-                pl.when(pl.col(check_col))
-                .then(pl.lit(f"[{rule_name}]"))
-                .otherwise(pl.lit(""))
+                pl.when(pl.col(check_col)).then(pl.lit(f"[{rule_name}]")).otherwise(pl.lit(""))
             )
 
         # Horizontally concatenate all triggered error strings for every row
         # Empty rule markers are discarded by using an empty string as the fallback.
         error_strings_df = (
-            matrix_df
-            .lazy()
+            matrix_df.lazy()
             .with_columns(
-                pl.concat_str(
-                    error_trace_exprs,
-                    separator=" "
-                ).str.strip_chars() # Remove any hanging spaces from empty rules
+                pl.concat_str(error_trace_exprs, separator=" ")
+                .str.strip_chars()  # Remove any hanging spaces from empty rules
                 .alias("_vg_errors")
             )
             .select("_vg_errors")
@@ -148,25 +122,15 @@ class ValidationEngine:
         )
 
         # Clean the string by checking whether at least one rule produced an error.
-        is_invalid_series = (
-            error_strings_df["_vg_errors"]
-            .str.len_chars()
-            .gt(0)
-        )
+        is_invalid_series = error_strings_df["_vg_errors"].str.len_chars().gt(0)
 
         # 5. Isolation Mode Routing
         if isolate:
             # Inject error reason logs exclusively into the isolated outputs
-            df_with_err = df.with_columns(
-                error_strings_df["_vg_errors"]
-            )
+            df_with_err = df.with_columns(error_strings_df["_vg_errors"])
 
             # Clean rows should preserve the original cleaned schema.
-            clean_df = (
-                df_with_err
-                .filter(~is_invalid_series)
-                .drop("_vg_errors")
-            )
+            clean_df = df_with_err.filter(~is_invalid_series).drop("_vg_errors")
 
             # Invalid rows retain the detailed validation trace.
             isolated_df = df_with_err.filter(is_invalid_series)
@@ -181,21 +145,14 @@ class ValidationEngine:
                 col_errors = {}
 
                 for check_col in matrix_df.columns:
-                    if (
-                        check_col.startswith(f"{col_name}_")
-                        and matrix_df[check_col].any()
-                    ):
+                    if check_col.startswith(f"{col_name}_") and matrix_df[check_col].any():
                         fail_count = matrix_df[check_col].sum()
 
                         # Extract the validation rule name from:
                         # <column>_<rule>_fail
-                        rule_name = check_col[
-                            len(col_name) + 1:
-                        ].removesuffix("_fail")
+                        rule_name = check_col[len(col_name) + 1 :].removesuffix("_fail")
 
-                        col_errors[rule_name] = (
-                            f"Failed {fail_count} rows"
-                        )
+                        col_errors[rule_name] = f"Failed {fail_count} rows"
 
                 if col_errors:
                     errors[col_name] = col_errors
