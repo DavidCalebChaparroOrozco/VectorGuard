@@ -1,9 +1,12 @@
-from typing import Any, Optional, Union, Callable
+from typing import Any, Callable, Optional, Union
 
 # Define the type alias FIRST so Python can use it in the class signature
 num = Union[int, float]
 
+
 class Field:
+    """Declarative field specification for DataContract schemas."""
+
     def __init__(
         self,
         *,
@@ -15,7 +18,6 @@ class Field:
         regex: Optional[str] = None,                        # Regex pattern matching
         nullable: bool = False,                             # Is column allowed to contain nulls?
         repair_with: Optional[Callable[[Any], Any]] = None  # Custom repair logic callback
-
     ):
         self.gt = gt
         self.ge = ge
@@ -25,3 +27,22 @@ class Field:
         self.regex = regex
         self.nullable = nullable
         self.repair_with = repair_with
+        self.data_type: Optional[type] = None
+
+    def clone_with_type(self, data_type: type, force_nullable: bool = False) -> "Field":
+        """
+        Creates an independent copy of this Field bound to a resolved data_type.
+        Prevents shared Field instances from mutating each other across contracts.
+        """
+        cloned = Field(
+            gt=self.gt,
+            ge=self.ge,
+            lt=self.lt,
+            le=self.le,
+            length=self.length,
+            regex=self.regex,
+            nullable=True if force_nullable else self.nullable,
+            repair_with=self.repair_with,
+        )
+        cloned.data_type = data_type
+        return cloned

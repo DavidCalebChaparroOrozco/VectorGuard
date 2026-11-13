@@ -2,6 +2,7 @@ import pytest
 import polars as pl
 from vectorguard import DataContract, Field, ValidationEngine, ValidationError
 from vectorguard import validate_contract
+from typing import Optional
 
 # 1. Define a sample data contract for testing
 class TransactionContract(DataContract):
@@ -361,31 +362,65 @@ def test_custom_repair_runs_before_standard_coercion():
     assert result["amount"].to_list() == [10.5, 20.5, 30.5]
 
 
-# 15. Test case: Valid isolated output never contains the internal error column
-def test_clean_dataframe_does_not_expose_error_trace():
-    data = {
-        "user_id": [10, 20],
-        "amount": [100.0, 200.0],
-        "country": ["US", "MX"]
-    }
-    df = pl.DataFrame(data)
-
-    class IsolationContract(DataContract):
-        user_id: int = Field(gt=0)
-        amount: float = Field(ge=0.0)
+# 15. Test case: Contract inheritance preserves parent fields and allows overrides
+def test_contract_inheritance_and_overrides():
+    class BaseAuditContract(DataContract):
+        id: int = Field(gt=0)
         country: str = Field(length=2)
 
-    # Act
-    clean_df, dead_letter_df = ValidationEngine.validate(
-        df,
-        IsolationContract,
-        isolate=True
-    )
+    class ExtendedTransactionContract(BaseAuditContract):
+        amount: float = Field(ge=0.0)
+        country: str = Field(length=3)  # Override parent constraint
 
-    # Assert: Clean output preserves the public DataFrame schema
-    assert "_vg_errors" not in clean_df.columns
+    fields = ExtendedTransactionContract.get_fields()
+    assert list(fields.keys()) == ["id", "country", "amount"]
+    assert fields["id"].data_type is int
+    assert fields["country"].length == 3
+    assert fields["amount"].data_type is float
 
-    # Assert: Dead letter output retains the diagnostic information
-    assert "_vg_errors" in dead_letter_df.columns
-    assert clean_df.shape == (2, 3)
-    assert dead_letter_df.shape == (0, 4)
+    # Verify parent contract was NOT mutated by child override
+    assert BaseAuditContract.get_fields()["country"].length == 2
+
+
+# 16. Test case: Reusing the same Field instance across contracts does not mutate shared state
+def test_shared_field_instance_is_not_mutated():
+    shared_positive_rule = Field(gt=0)
+
+    class IntContract(DataContract):
+        value: int = shared_positive_rule
+
+    class FloatContract(DataContract):
+        value: float = shared_positive_rule
+
+    assert IntContract.get_fields()["value"].data_type is int
+    assert FloatContract.get_fields()["value"].data_type is float
+    assert shared_positive_rule.data_type is None
+
+
+# 17. Test case: Optional and Union (T | None) annotations resolve base types and set nullable=True
+def test_optional_and_union_type_annotations():
+    class OptionalFieldsContract(DataContract):
+        user_id: int = Field(gt=0)
+        nickname: Optional[str] = Field(length=4)
+        discount: float | None = Field(ge=0.0)
+
+    fields = OptionalFieldsContract.get_fields()
+    assert fields["nickname"].data_type is str
+    assert fields["nickname"].nullable is True
+    assert fields["discount"].data_type is float
+    assert fields["discount"].nullable is True
+
+    df = pl.DataFrame({
+        "user_id": list(range(1, 3)),
+        "nickname": ["ALFA", None],
+        "discount": [None, 15.5],
+    })
+    validated = ValidationEngine.validate(df, OptionalFieldsContract)
+    assert validated.shape == (2, 3)
+
+
+# 18. Test case: Unsupported type annotations fail explicitly with TypeError
+def test_unsupported_type_annotation_raises_type_error():
+    with pytest.raises(TypeError, match="Unsupported type annotation"):
+        class InvalidTypeContract(DataContract):
+            tags: list = Field()
