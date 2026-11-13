@@ -424,3 +424,53 @@ def test_unsupported_type_annotation_raises_type_error():
     with pytest.raises(TypeError, match="Unsupported type annotation"):
         class InvalidTypeContract(DataContract):
             tags: list = Field()
+
+# 19. Test case: Integer columns are promoted to Float64 when contract expects float
+def test_integer_to_float_coercion():
+    int_ids = list(range(1, 4))
+    int_amounts = list(range(10, 40, 10))
+    countries = ["US", "MX", "CA"]
+
+    df = pl.DataFrame({
+        "user_id": int_ids,
+        "amount": int_amounts,
+        "country": countries,
+    })
+
+    result = ValidationEngine.validate(df, TransactionContract)
+    assert result.schema["amount"] == pl.Float64
+    assert result["amount"].to_list() == [10.0, 20.0, 30.0]
+
+
+# 20. Test case: Fractional floats are NOT silently truncated when contract expects int
+def test_float_to_int_prevents_silent_truncation():
+    class StrictIntContract(DataContract):
+        exact_col: int = Field(gt=0)
+        fractional_col: int = Field(gt=0, nullable=False)
+
+    df = pl.DataFrame({
+        "exact_col": [10.0, 20.0],
+        "fractional_col": [10.0, 10.9],  # 10.9 must NOT silently become 10
+    })
+
+    with pytest.raises(ValidationError) as exc_info:
+        ValidationEngine.validate(df, StrictIntContract)
+
+    assert "fractional_col" in exc_info.value.errors
+    assert "null" in exc_info.value.errors["fractional_col"]
+
+
+# 21. Test case: Thousands separators and malformed multi-comma strings are handled safely
+def test_numeric_string_thousands_and_malformed_commas():
+    class NumericStringContract(DataContract):
+        price: float = Field(ge=0.0, nullable=True)
+
+    df = pl.DataFrame({
+        "price": ["1,234.56", "10,5", "1,2,3"],
+    })
+
+    result = ValidationEngine.validate(df, NumericStringContract)
+    assert result.schema["price"] == pl.Float64
+    assert result["price"][0] == 1234.56
+    assert result["price"][1] == 10.5
+    assert result["price"][2] is None
