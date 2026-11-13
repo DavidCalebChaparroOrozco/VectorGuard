@@ -28,8 +28,17 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-benchmark>=4.0.0",
-    "pandera[polars]>=0.18.0",      # Added for benchmarking
+    "pandera[polars]>=0.18.0",
+    "ruff>=0.8.0",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I", "UP"]
+
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vectorguard"]
