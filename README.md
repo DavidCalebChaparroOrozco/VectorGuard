@@ -72,17 +72,11 @@ Define the expected schema and business constraints using reusable contract defi
 ```python
 from vectorguard import DataContract, Field
 
+
 class TransactionContract(DataContract):
     user_id: int = Field(gt=0, nullable=False)
-    amount: float = Field(
-        ge=0.0,
-        le=5000.0,
-        nullable=True
-    )
-    country: str = Field(
-        length=2,
-        regex="^[A-Z]{2}$"
-    )
+    amount: float = Field(ge=0.0, le=5000.0, nullable=True)
+    country: str = Field(length=2, regex="^[A-Z]{2}$")
 ```
 
 ### 2. Integrate Validation into Data Pipelines
@@ -93,17 +87,16 @@ Use the `@validate_contract` decorator to enforce data contracts at pipeline bou
 import polars as pl
 from vectorguard import validate_contract
 
+
 @validate_contract(contract=TransactionContract)
 def process_batch(df: pl.DataFrame) -> pl.DataFrame:
     # Data is validated and normalized before processing.
     return df.filter(pl.col("amount") > 100.0)
 
 
-dirty_data = pl.DataFrame({
-    "user_id": ["1", " 2 ", "3"],
-    "amount": ["10,5", "99.9", "N/A"],
-    "country": ["US", "MX", "CA"]
-})
+dirty_data = pl.DataFrame(
+    {"user_id": ["1", " 2 ", "3"], "amount": ["10,5", "99.9", "N/A"], "country": ["US", "MX", "CA"]}
+)
 
 clean_df = process_batch(dirty_data)
 ```
@@ -117,11 +110,7 @@ For workflows that require fault tolerance and data lineage, VectorGuard support
 ```python
 from vectorguard import ValidationEngine
 
-clean_df, isolated_df = ValidationEngine.validate(
-    dirty_data,
-    TransactionContract,
-    isolate=True
-)
+clean_df, isolated_df = ValidationEngine.validate(dirty_data, TransactionContract, isolate=True)
 ```
 
 The resulting DataFrames serve distinct purposes:
