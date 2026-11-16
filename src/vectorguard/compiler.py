@@ -136,13 +136,12 @@ class CompiledContract:
                     continue
 
             if expected_type in (int, float) and current_dtype == pl.String:
-                expr = expr.str.strip_chars()
-                expr = pl.when(expr.is_in(SafeCoercer.COMMON_NULLS)).then(None).otherwise(expr)
-                normalized = SafeCoercer._normalize_numeric_string(expr)
-
                 if expected_type is int:
-                    as_float = normalized.cast(pl.Float64, strict=False)
-                    expr = (
+                    # Fast path: direct Int64 cast handles whitespace & non-numeric nulls natively;
+                    # fallback to Float64 check only if string contains a decimal dot (e.g. "10.0")
+                    direct_int = expr.cast(pl.Int64, strict=False)
+                    as_float = expr.str.strip_chars().cast(pl.Float64, strict=False)
+                    exact_float_int = (
                         pl.when(
                             as_float.is_not_null()
                             & (as_float == as_float.floor())
@@ -151,7 +150,11 @@ class CompiledContract:
                         .then(as_float.cast(pl.Int64, strict=False))
                         .otherwise(None)
                     )
+                    expr = pl.coalesce([direct_int, exact_float_int])
                 else:
+                    # Single-pass comma normalization; Polars Float64 cast natively strips
+                    # whitespace and maps "N/A", "NULL", "", etc. to null without is_in() scans.
+                    normalized = SafeCoercer._normalize_numeric_string(expr)
                     expr = normalized.cast(pl.Float64, strict=False)
 
                 coercion_exprs.append(expr.alias(col_name))

@@ -20,20 +20,15 @@ class SafeCoercer:
     @staticmethod
     def _normalize_numeric_string(expr: pl.Expr) -> pl.Expr:
         """
-        Normalizes numeric strings deterministically without corrupting thousands separators:
+        Normalizes numeric strings in a single conditional pass:
         - '1,234.56' -> '1234.56' (commas stripped as thousands separators)
-        - '10,5'     -> '10.5'    (single comma converted to decimal point)
-        - '1,2,3'    -> unchanged (fails safely to null on strict=False cast)
+        - '10,5'     -> '10.5'    (comma converted to decimal point)
+        - '1,2,3'    -> '1.2.3'   (fails safely to null on strict=False Float64 cast)
         """
-        has_dot = expr.str.contains(".", literal=True)
-        comma_count = expr.str.count_matches(",", literal=True)
-
         return (
-            pl.when(has_dot)
+            pl.when(expr.str.contains(".", literal=True))
             .then(expr.str.replace_all(",", "", literal=True))
-            .when(comma_count == 1)
-            .then(expr.str.replace(",", ".", literal=True))
-            .otherwise(expr)
+            .otherwise(expr.str.replace_all(",", ".", literal=True))
         )
 
     @staticmethod
