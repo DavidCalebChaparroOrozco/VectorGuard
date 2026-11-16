@@ -457,3 +457,23 @@ def test_numeric_string_thousands_and_malformed_commas():
     assert result["price"][0] == 1234.56
     assert result["price"][1] == 10.5
     assert result["price"][2] is None
+
+
+# 22. Test case: Contract compilation caches execution plan and preserves clean output schema
+def test_compiled_contract_caching_and_clean_schema():
+    compiled_first = ValidationEngine.get_compiled_contract(TransactionContract)
+    compiled_second = ValidationEngine.get_compiled_contract(TransactionContract)
+
+    # Verify plan is compiled once and cached
+    assert compiled_first is compiled_second
+    assert len(compiled_first.rules) == 8
+
+    df = pl.DataFrame(
+        {
+            "user_id": list(range(1, 3)),
+            "amount": [100.0, 200.0],
+            "country": ["US", "MX"],
+        }
+    )
+    result = ValidationEngine.validate(df, TransactionContract)
+    assert result.columns == ["user_id", "amount", "country"]
