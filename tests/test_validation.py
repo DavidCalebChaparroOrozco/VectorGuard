@@ -477,3 +477,19 @@ def test_compiled_contract_caching_and_clean_schema():
     )
     result = ValidationEngine.validate(df, TransactionContract)
     assert result.columns == ["user_id", "amount", "country"]
+
+
+# 23. Test case: Re-validating an already coerced DataFrame is idempotent with string repair_with
+def test_revalidation_with_string_repair_on_numeric_field_is_idempotent():
+    class IdempotentContract(DataContract):
+        user_id: int = Field(
+            gt=0,
+            repair_with=lambda expr: expr.str.replace("ID_", "", literal=True),
+        )
+
+    raw_df = pl.DataFrame({"user_id": ["ID_10", "ID_20"]})
+    first_pass = ValidationEngine.validate(raw_df, IdempotentContract)
+    second_pass = ValidationEngine.validate(first_pass, IdempotentContract)
+
+    assert second_pass.schema["user_id"] == pl.Int64
+    assert second_pass["user_id"].to_list() == [10, 20]

@@ -19,6 +19,7 @@ class Field:
         regex: str | None = None,  # Regex pattern matching
         nullable: bool = False,  # Is column allowed to contain nulls?
         repair_with: Callable[[Any], Any] | None = None,  # Custom repair logic callback
+        repair_when_typed: bool = False,  # Should repair_with be applied after type coercion
     ):
         self.gt = gt
         self.ge = ge
@@ -28,6 +29,7 @@ class Field:
         self.regex = regex
         self.nullable = nullable
         self.repair_with = repair_with
+        self.repair_when_typed = repair_when_typed
         self.data_type: type | None = None
 
     def clone_with_type(self, data_type: type, force_nullable: bool = False) -> "Field":
@@ -44,6 +46,7 @@ class Field:
             regex=self.regex,
             nullable=True if force_nullable else self.nullable,
             repair_with=self.repair_with,
+            repair_when_typed=self.repair_when_typed,
         )
         cloned.data_type = data_type
         return cloned

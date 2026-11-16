@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 import polars as pl
 
-from vectorguard.coercion import SafeCoercer
 from vectorguard.contract import DataContract
 from vectorguard.fields import Field
 
@@ -124,56 +123,21 @@ class CompiledContract:
             current_dtype = schema[col_name]
             expr = pl.col(col_name)
 
-            if field.repair_with is not None:
+            already_target_numeric = (expected_type is int and current_dtype.is_integer()) or (
+                expected_type is float and current_dtype.is_float()
+            )
+
+            should_apply_repair = field.repair_with is not None and (
+                field.repair_when_typed or expected_type is str or not already_target_numeric
+            )
+
+            if should_apply_repair:
                 expr = field.repair_with(expr)
 
-            if field.repair_with is None:
+            if not should_apply_repair:
                 if expected_type is int and current_dtype == pl.Int64:
                     continue
                 if expected_type is float and current_dtype == pl.Float64:
                     continue
                 if expected_type is str and current_dtype == pl.String:
                     continue
-
-            if expected_type in (int, float) and current_dtype == pl.String:
-                if expected_type is int:
-                    # Fast path: direct Int64 cast handles whitespace & non-numeric nulls natively;
-                    # fallback to Float64 check only if string contains a decimal dot (e.g. "10.0")
-                    direct_int = expr.cast(pl.Int64, strict=False)
-                    as_float = expr.str.strip_chars().cast(pl.Float64, strict=False)
-                    exact_float_int = (
-                        pl.when(
-                            as_float.is_not_null()
-                            & (as_float == as_float.floor())
-                            & as_float.is_finite()
-                        )
-                        .then(as_float.cast(pl.Int64, strict=False))
-                        .otherwise(None)
-                    )
-                    expr = pl.coalesce([direct_int, exact_float_int])
-                else:
-                    # Single-pass comma normalization; Polars Float64 cast natively strips
-                    # whitespace and maps "N/A", "NULL", "", etc. to null without is_in() scans.
-                    normalized = SafeCoercer._normalize_numeric_string(expr)
-                    expr = normalized.cast(pl.Float64, strict=False)
-
-                coercion_exprs.append(expr.alias(col_name))
-
-            elif expected_type is float and current_dtype.is_integer():
-                coercion_exprs.append(expr.cast(pl.Float64).alias(col_name))
-
-            elif expected_type is int and current_dtype.is_float():
-                safe_int_expr = (
-                    pl.when(expr.is_not_null() & (expr == expr.floor()) & expr.is_finite())
-                    .then(expr.cast(pl.Int64, strict=False))
-                    .otherwise(None)
-                )
-                coercion_exprs.append(safe_int_expr.alias(col_name))
-
-            elif expected_type is str and current_dtype != pl.String:
-                coercion_exprs.append(expr.cast(pl.String).alias(col_name))
-
-            elif field.repair_with is not None:
-                coercion_exprs.append(expr.alias(col_name))
-
-        return coercion_exprs
